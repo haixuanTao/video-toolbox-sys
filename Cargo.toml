@@ -18,6 +18,13 @@ core-video-sys = "0.2.0"
 
 [dev-dependencies]
 core-foundation = "0.9"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-av-foundation = "0.3"
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
+dispatch = "0.2"
+block2 = "0.6"
 
 [patch.crates-io]
 core-video-sys = { git = "https://github.com/AstroHQ/core-video-sys" }

@@ -1,12 +1,11 @@
-//! Encode a dummy test pattern image to HEVC using hardware acceleration.
+//! Encode a dummy test pattern image to H.264 using hardware acceleration.
 //!
 //! This example creates a synthetic gradient image, wraps it in a CVPixelBuffer,
-//! and encodes it using Apple's hardware HEVC encoder.
+//! and encodes it using Apple's hardware H.264 encoder.
 //!
 //! Run with: cargo run --example encode_dummy_image
 //!
-//! Note: AV1 encoding is not yet available on macOS (only decode).
-//! This example uses HEVC which has hardware encoder support.
+//! H.264 is used because it has simpler licensing terms compared to HEVC.
 
 extern crate core_foundation;
 extern crate video_toolbox_sys;
@@ -40,7 +39,7 @@ use video_toolbox_sys::compression::{
     kVTCompressionPropertyKey_AverageBitRate, kVTCompressionPropertyKey_ExpectedFrameRate,
     kVTCompressionPropertyKey_MaxKeyFrameInterval, kVTCompressionPropertyKey_ProfileLevel,
     kVTCompressionPropertyKey_RealTime, kVTEncodeInfo_FrameDropped,
-    kVTProfileLevel_HEVC_Main_AutoLevel,
+    kVTProfileLevel_H264_High_AutoLevel,
     kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder,
     VTCompressionOutputCallback, VTCompressionSessionCompleteFrames, VTCompressionSessionCreate,
     VTCompressionSessionEncodeFrame, VTCompressionSessionInvalidate,
@@ -48,8 +47,8 @@ use video_toolbox_sys::compression::{
 };
 use video_toolbox_sys::session::VTSessionSetProperty;
 
-// HEVC codec FourCC: 'hvc1'
-const K_CM_VIDEO_CODEC_TYPE_HEVC: u32 = 0x68766331;
+// H.264 codec FourCC: 'avc1'
+const K_CM_VIDEO_CODEC_TYPE_H264: u32 = 0x61766331;
 
 // kCVPixelFormatType_32BGRA
 const K_CV_PIXEL_FORMAT_TYPE_32BGRA: u32 = 0x42475241; // 'BGRA'
@@ -174,7 +173,7 @@ fn create_test_image(frame_number: usize) -> CVPixelBufferRef {
 }
 
 fn main() {
-    println!("HEVC Hardware Encoding Example");
+    println!("H.264 Hardware Encoding Example");
     println!("===============================");
     println!("Resolution: {}x{}", WIDTH, HEIGHT);
     println!("Frames to encode: {}\n", NUM_FRAMES);
@@ -205,13 +204,13 @@ fn main() {
 
         let mut session: VTCompressionSessionRef = ptr::null_mut();
 
-        println!("Creating HEVC compression session...");
+        println!("Creating H.264 compression session...");
 
         let status = VTCompressionSessionCreate(
             kCFAllocatorDefault,
             WIDTH,
             HEIGHT,
-            K_CM_VIDEO_CODEC_TYPE_HEVC,
+            K_CM_VIDEO_CODEC_TYPE_H264,
             encoder_spec.as_concrete_TypeRef() as CFDictionaryRef,
             source_attrs.as_concrete_TypeRef() as CFDictionaryRef,
             kCFAllocatorDefault,
@@ -223,19 +222,18 @@ fn main() {
         if status != 0 {
             println!("Failed to create compression session: OSStatus {}", status);
             println!("\nPossible reasons:");
-            println!("  - HEVC encoder not available on this system");
-            println!("  - Try using H.264 (codec type 0x61766331) instead");
+            println!("  - H.264 encoder not available on this system");
             return;
         }
 
         println!("Compression session created successfully!");
 
         // Configure session properties
-        // Profile: HEVC Main (auto level)
+        // Profile: H.264 High (auto level)
         let profile_key =
             CFString::wrap_under_get_rule(kVTCompressionPropertyKey_ProfileLevel as CFStringRef);
         let profile_value =
-            CFString::wrap_under_get_rule(kVTProfileLevel_HEVC_Main_AutoLevel as CFStringRef);
+            CFString::wrap_under_get_rule(kVTProfileLevel_H264_High_AutoLevel as CFStringRef);
         VTSessionSetProperty(
             session,
             profile_key.as_concrete_TypeRef() as CFStringRef,
@@ -284,7 +282,7 @@ fn main() {
         );
 
         println!("Session configured:");
-        println!("  Profile: HEVC Main (Auto Level)");
+        println!("  Profile: H.264 High (Auto Level)");
         println!("  Bitrate: 8 Mbps");
         println!("  Frame rate: 30 fps");
         println!("  Keyframe interval: 30 frames\n");
