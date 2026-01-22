@@ -3,7 +3,8 @@ use core_foundation_sys::base::{Boolean, CFTypeRef, OSStatus};
 use core_foundation_sys::dictionary::CFDictionaryRef;
 use core_foundation_sys::string::CFStringRef;
 use core_media_sys::CMVideoCodecType;
-use core_video_sys::CVPixelBufferRef;
+
+use crate::cv_types::CVPixelBufferRef;
 
 pub type CGImageRef = CFTypeRef;
 

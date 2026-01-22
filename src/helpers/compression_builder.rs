@@ -10,7 +10,7 @@ use core_foundation::string::CFString;
 use core_foundation_sys::base::{kCFAllocatorDefault, CFTypeRef, OSStatus};
 use core_foundation_sys::dictionary::CFDictionaryRef;
 use core_foundation_sys::string::CFStringRef;
-use core_video_sys::kCVPixelBufferPixelFormatTypeKey;
+use super::cv_ffi::kCVPixelBufferPixelFormatTypeKey;
 use libc::c_void;
 use std::ptr;
 

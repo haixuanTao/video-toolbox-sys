@@ -24,7 +24,6 @@ helpers = [
 libc = "0.2"
 core-foundation-sys = "0.8"
 core-media-sys = "0.1.0"
-core-video-sys = "0.2.0"
 
 # Optional dependencies for helpers feature
 core-foundation = { version = "0.9", optional = true }
@@ -33,6 +32,7 @@ objc2-foundation = { version = "0.3", optional = true }
 
 [dev-dependencies]
 core-foundation = "0.9"
+core-video-sys = "0.2.0"
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-av-foundation = "0.3"
@@ -41,5 +41,6 @@ objc2-core-video = "0.3"
 dispatch = "0.2"
 block2 = "0.6"
 
+# Patch for examples only - not needed for the library itself
 [patch.crates-io]
 core-video-sys = { git = "https://github.com/AstroHQ/core-video-sys" }

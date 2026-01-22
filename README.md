@@ -20,14 +20,11 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-video-toolbox-sys = { git = "https://github.com/luozijun/rust-videotoolbox-sys" }
+video-toolbox-sys = "0.2"
 
 # Optional: Enable high-level helpers
-video-toolbox-sys = { git = "https://github.com/luozijun/rust-videotoolbox-sys", features = ["helpers"] }
+video-toolbox-sys = { version = "0.2", features = ["helpers"] }
 ```
-
-**Note:** This crate depends on an unreleased version of `core-video-sys`.
-Use the git dependency until version 0.2.0 is published to crates.io.
 
 ## Usage
 

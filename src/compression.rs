@@ -2,7 +2,8 @@ use core_foundation_sys::base::{Boolean, CFAllocatorRef, CFTypeID, CFTypeRef, OS
 use core_foundation_sys::dictionary::CFDictionaryRef;
 use core_foundation_sys::string::CFStringRef;
 use core_media_sys::{CMItemCount, CMSampleBufferRef, CMTime, CMTimeRange, CMVideoCodecType};
-use core_video_sys::{CVImageBufferRef, CVPixelBufferPoolRef};
+
+use crate::cv_types::{CVImageBufferRef, CVPixelBufferPoolRef};
 use libc::{c_int, c_void};
 
 pub const kVTUnlimitedFrameDelayCount: c_int = -1;

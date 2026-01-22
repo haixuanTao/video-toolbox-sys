@@ -45,6 +45,7 @@
 
 pub mod base;
 pub mod compression;
+pub mod cv_types;
 pub mod decompression;
 pub mod errors;
 pub mod frame_silo;

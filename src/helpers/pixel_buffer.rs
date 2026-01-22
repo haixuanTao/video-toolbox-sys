@@ -7,16 +7,16 @@ use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
 use core_foundation_sys::base::kCFAllocatorDefault;
 use core_foundation_sys::dictionary::CFDictionaryRef;
-use core_video_sys::{
+use std::ptr;
+
+use super::cv_ffi::{
     kCVPixelBufferCGBitmapContextCompatibilityKey, kCVPixelBufferCGImageCompatibilityKey,
     kCVPixelBufferHeightKey, kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey,
     kCVReturnSuccess, CVPixelBufferCreate, CVPixelBufferGetBaseAddress,
-    CVPixelBufferGetBytesPerRow, CVPixelBufferLockBaseAddress, CVPixelBufferRef,
-    CVPixelBufferUnlockBaseAddress,
+    CVPixelBufferGetBytesPerRow, CVPixelBufferLockBaseAddress, CVPixelBufferUnlockBaseAddress,
 };
-use std::ptr;
-
 use crate::codecs;
+use crate::cv_types::CVPixelBufferRef;
 
 /// Configuration for creating a CVPixelBuffer.
 #[derive(Clone)]
@@ -148,7 +148,7 @@ pub fn create_pixel_buffer(config: &PixelBufferConfig) -> Result<CVPixelBufferRe
 /// let pixel_buffer = create_pixel_buffer(&config).unwrap();
 ///
 /// {
-///     let guard = PixelBufferGuard::lock(pixel_buffer).expect("Failed to lock buffer");
+///     let guard = unsafe { PixelBufferGuard::lock(pixel_buffer).expect("Failed to lock buffer") };
 ///     let ptr = guard.base_address();
 ///     let bytes_per_row = guard.bytes_per_row();
 ///     // Write to buffer...

@@ -4,7 +4,8 @@ use core_foundation_sys::string::CFStringRef;
 use core_media_sys::{
     CMFormatDescriptionRef, CMSampleBufferRef, CMTime, CMVideoFormatDescriptionRef,
 };
-use core_video_sys::{CVImageBufferRef, CVPixelBufferRef};
+
+use crate::cv_types::{CVImageBufferRef, CVPixelBufferRef};
 use libc::c_void;
 
 pub type VTDecodeInfoFlags = u32;

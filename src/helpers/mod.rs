@@ -29,6 +29,7 @@
 //! ```
 
 mod compression_builder;
+mod cv_ffi;
 mod delegate;
 mod pixel_buffer;
 mod runloop;
