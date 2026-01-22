@@ -1,20 +1,35 @@
 [package]
 name = "video-toolbox-sys"
-version = "0.1.1"
-edition = "2018"
+version = "0.2.0"
+edition = "2021"
 authors = ["luozijun <luozijun.assistant@gmail.com>"]
-description = "Bindings to VideoToolBox for OS X and iOS"
+description = "FFI bindings and helpers for Apple VideoToolbox framework"
 license = "MIT"
-homepage   = "https://github.com/luozijun/rust-videotoolbox-sys"
+homepage = "https://github.com/luozijun/rust-videotoolbox-sys"
 repository = "https://github.com/luozijun/rust-videotoolbox-sys"
-documentation = "https://docs.rs/videotoolbox-sys/*/x86_64-apple-darwin/videotoolbox_sys"
+documentation = "https://docs.rs/video-toolbox-sys"
+keywords = ["video", "encoding", "videotoolbox", "h264", "macos"]
+categories = ["multimedia::video", "os::macos-apis"]
+readme = "README.md"
 
+[features]
+default = []
+helpers = [
+    "dep:core-foundation",
+    "dep:objc2",
+    "dep:objc2-foundation",
+]
 
 [dependencies]
 libc = "0.2"
 core-foundation-sys = "0.8"
 core-media-sys = "0.1.0"
 core-video-sys = "0.2.0"
+
+# Optional dependencies for helpers feature
+core-foundation = { version = "0.9", optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", optional = true }
 
 [dev-dependencies]
 core-foundation = "0.9"
