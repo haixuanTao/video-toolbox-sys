@@ -11,6 +11,7 @@ documentation = "https://docs.rs/video-toolbox-sys"
 keywords = ["video", "encoding", "videotoolbox", "h264", "macos"]
 categories = ["multimedia::video", "os::macos-apis"]
 readme = "README.md"
+exclude = ["examples/*", "output*.mov", "output*.m4a", "output*.wav"]
 
 [features]
 default = []
@@ -30,17 +31,11 @@ core-foundation = { version = "0.9", optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-foundation = { version = "0.3", optional = true }
 
-[dev-dependencies]
-core-foundation = "0.9"
-core-video-sys = "0.2.0"
-objc2 = "0.6"
-objc2-foundation = "0.3"
-objc2-av-foundation = "0.3"
-objc2-core-media = "0.3"
-objc2-core-video = "0.3"
-dispatch = "0.2"
-block2 = "0.6"
-
-# Patch for examples only - not needed for the library itself
-[patch.crates-io]
-core-video-sys = { git = "https://github.com/AstroHQ/core-video-sys" }
+# Note: Examples require additional dev-dependencies not listed here.
+# To run examples locally, add these to a local Cargo.toml:
+#   core-video-sys = { git = "https://github.com/AstroHQ/core-video-sys" }
+#   objc2-av-foundation = "0.3"
+#   objc2-core-media = "0.3"
+#   objc2-core-video = "0.3"
+#   dispatch = "0.2"
+#   block2 = "0.6"
