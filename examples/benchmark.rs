@@ -18,9 +18,8 @@ use core_foundation_sys::string::CFStringRef;
 use video_toolbox_sys::cv_types::{
     kCVPixelBufferCGBitmapContextCompatibilityKey, kCVPixelBufferCGImageCompatibilityKey,
     kCVPixelBufferHeightKey, kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey,
-    kCVReturnSuccess, CVPixelBufferCreate, CVPixelBufferGetBaseAddress,
-    CVPixelBufferGetBytesPerRow, CVPixelBufferLockBaseAddress, CVPixelBufferRef,
-    CVPixelBufferUnlockBaseAddress,
+    CVPixelBufferCreate, CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow,
+    CVPixelBufferLockBaseAddress, CVPixelBufferRef, CVPixelBufferUnlockBaseAddress,
 };
 use std::io::Write;
 use std::process::Command;

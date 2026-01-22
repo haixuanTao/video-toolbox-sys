@@ -35,6 +35,9 @@ mod pixel_buffer;
 mod runloop;
 
 pub use compression_builder::{CompressionSessionBuilder, CompressionSessionConfig};
-pub use delegate::{create_capture_delegate, DelegateCallback};
+pub use delegate::{
+    create_capture_delegate, create_dispatch_queue, set_sample_buffer_delegate, CaptureDelegate,
+    DelegateCallback,
+};
 pub use pixel_buffer::{create_pixel_buffer, PixelBufferConfig, PixelBufferGuard};
-pub use runloop::{run_for_duration, run_while};
+pub use runloop::{run_for_duration, run_until_some, run_while};

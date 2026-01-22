@@ -5,53 +5,40 @@
 //! 2. VTCompressionSession for H.264 video encoding
 //! 3. AVAssetWriter for muxing video + audio into a MOV file
 //!
-//! Run with: cargo run --example av_record
+//! Run with: cargo run --example av_record --features helpers
 //!
 //! Note: You may need to grant camera and microphone permissions.
 //! The output file will be saved as "output_av.mov".
 
-use core_foundation::base::TCFType;
-use core_foundation::boolean::CFBoolean;
-use core_foundation::dictionary::CFDictionary;
-use core_foundation::number::CFNumber;
-use core_foundation::string::CFString;
-use core_foundation_sys::base::{kCFAllocatorDefault, CFTypeRef, OSStatus};
-use core_foundation_sys::dictionary::CFDictionaryRef;
-use core_foundation_sys::string::CFStringRef;
+use core_foundation_sys::base::OSStatus;
 use core_media_sys::CMTime;
-use video_toolbox_sys::cv_types::{kCVPixelBufferPixelFormatTypeKey, CVPixelBufferRef};
 use libc::c_void;
 use objc2::rc::Retained;
-use objc2::runtime::{AnyProtocol, Bool, Sel};
-use objc2::{class, msg_send, sel, ClassType};
+use objc2::runtime::{Bool, Sel};
+use objc2::{class, msg_send};
 use objc2_av_foundation::{
     AVAssetWriter, AVAssetWriterInput, AVCaptureAudioDataOutput, AVCaptureDevice,
     AVCaptureDeviceInput, AVCaptureSession, AVCaptureVideoDataOutput, AVMediaTypeAudio,
     AVMediaTypeVideo,
 };
 use objc2_core_media::CMSampleBuffer;
-use objc2_foundation::{ns_string, NSError, NSNumber, NSObject, NSString, NSURL, NSDictionary};
-use std::ffi::CStr;
+use objc2_foundation::{ns_string, NSDictionary, NSError, NSNumber, NSObject, NSString, NSURL};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
-use video_toolbox_sys::compression::{
-    kVTCompressionPropertyKey_AverageBitRate, kVTCompressionPropertyKey_ExpectedFrameRate,
-    kVTCompressionPropertyKey_MaxKeyFrameInterval, kVTCompressionPropertyKey_ProfileLevel,
-    kVTCompressionPropertyKey_RealTime, kVTEncodeInfo_FrameDropped,
-    kVTProfileLevel_H264_High_AutoLevel,
-    kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder,
-    VTCompressionSessionCompleteFrames, VTCompressionSessionCreate,
-    VTCompressionSessionEncodeFrame, VTCompressionSessionInvalidate,
-    VTCompressionSessionPrepareToEncodeFrames, VTCompressionSessionRef, VTEncodeInfoFlags,
-};
-use video_toolbox_sys::session::VTSessionSetProperty;
 
-// Codec constants
-const K_CM_VIDEO_CODEC_TYPE_H264: u32 = 0x61766331; // 'avc1'
-const K_CV_PIXEL_FORMAT_TYPE_32BGRA: u32 = 0x42475241; // 'BGRA'
-const K_AUDIO_FORMAT_MPEG4_AAC: u32 = 0x61616320; // 'aac '
+use video_toolbox_sys::codecs;
+use video_toolbox_sys::compression::{
+    kVTEncodeInfo_FrameDropped, kVTProfileLevel_H264_High_AutoLevel,
+    VTCompressionSessionCompleteFrames, VTCompressionSessionEncodeFrame,
+    VTCompressionSessionInvalidate, VTCompressionSessionRef, VTEncodeInfoFlags,
+};
+use video_toolbox_sys::cv_types::CVPixelBufferRef;
+use video_toolbox_sys::helpers::{
+    create_capture_delegate, create_dispatch_queue, run_for_duration, set_sample_buffer_delegate,
+    CompressionSessionBuilder, DelegateCallback,
+};
 
 // Video parameters
 const VIDEO_WIDTH: i32 = 1280;
@@ -91,24 +78,6 @@ static mut COMPRESSION_SESSION: VTCompressionSessionRef = ptr::null_mut();
 #[link(name = "CoreMedia", kind = "framework")]
 extern "C" {
     fn CMSampleBufferGetImageBuffer(sbuf: *const c_void) -> CVPixelBufferRef;
-    fn CMSampleBufferGetTotalSampleSize(sbuf: *const c_void) -> usize;
-}
-
-// Dispatch FFI
-#[link(name = "System")]
-extern "C" {
-    fn dispatch_queue_create(label: *const i8, attr: *const c_void) -> *mut c_void;
-}
-
-// CoreFoundation run loop FFI
-#[link(name = "CoreFoundation", kind = "framework")]
-extern "C" {
-    fn CFRunLoopRunInMode(
-        mode: *const c_void,
-        seconds: f64,
-        return_after_source_handled: bool,
-    ) -> i32;
-    static kCFRunLoopDefaultMode: *const c_void;
 }
 
 // Video compression output callback
@@ -218,98 +187,28 @@ extern "C" fn audio_capture_callback(
 
 fn create_compression_session() -> Result<VTCompressionSessionRef, OSStatus> {
     unsafe {
-        let hw_key = CFString::wrap_under_get_rule(
-            kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as CFStringRef,
-        );
-        let encoder_spec = CFDictionary::from_CFType_pairs(&[(
-            hw_key.as_CFType(),
-            CFBoolean::true_value().as_CFType(),
-        )]);
-
-        let format_key = CFString::wrap_under_get_rule(kCVPixelBufferPixelFormatTypeKey);
-        let width_key = CFString::from_static_string("Width");
-        let height_key = CFString::from_static_string("Height");
-
-        let source_attrs = CFDictionary::from_CFType_pairs(&[
-            (
-                format_key.as_CFType(),
-                CFNumber::from(K_CV_PIXEL_FORMAT_TYPE_32BGRA as i32).as_CFType(),
-            ),
-            (
-                width_key.as_CFType(),
-                CFNumber::from(VIDEO_WIDTH).as_CFType(),
-            ),
-            (
-                height_key.as_CFType(),
-                CFNumber::from(VIDEO_HEIGHT).as_CFType(),
-            ),
-        ]);
-
-        let mut session: VTCompressionSessionRef = ptr::null_mut();
-
-        let status = VTCompressionSessionCreate(
-            kCFAllocatorDefault,
-            VIDEO_WIDTH,
-            VIDEO_HEIGHT,
-            K_CM_VIDEO_CODEC_TYPE_H264,
-            encoder_spec.as_concrete_TypeRef() as CFDictionaryRef,
-            source_attrs.as_concrete_TypeRef() as CFDictionaryRef,
-            kCFAllocatorDefault,
-            std::mem::transmute::<
-                extern "C" fn(*mut c_void, *mut c_void, i32, u32, *mut c_void),
-                _,
-            >(compression_output_callback),
-            ptr::null_mut(),
-            &mut session,
-        );
-
-        if status != 0 {
-            return Err(status);
-        }
-
-        // Configure session
-        let props: &[(&CFStringRef, CFTypeRef)] = &[
-            (
-                &(kVTCompressionPropertyKey_ProfileLevel as CFStringRef),
-                CFString::wrap_under_get_rule(kVTProfileLevel_H264_High_AutoLevel as CFStringRef)
-                    .as_concrete_TypeRef() as CFTypeRef,
-            ),
-            (
-                &(kVTCompressionPropertyKey_AverageBitRate as CFStringRef),
-                CFNumber::from(VIDEO_BITRATE).as_concrete_TypeRef() as CFTypeRef,
-            ),
-            (
-                &(kVTCompressionPropertyKey_ExpectedFrameRate as CFStringRef),
-                CFNumber::from(FRAME_RATE).as_concrete_TypeRef() as CFTypeRef,
-            ),
-            (
-                &(kVTCompressionPropertyKey_MaxKeyFrameInterval as CFStringRef),
-                CFNumber::from(FRAME_RATE as i32).as_concrete_TypeRef() as CFTypeRef,
-            ),
-            (
-                &(kVTCompressionPropertyKey_RealTime as CFStringRef),
-                CFBoolean::true_value().as_concrete_TypeRef() as CFTypeRef,
-            ),
-        ];
-
-        for (key, value) in props {
-            VTSessionSetProperty(session, **key, *value);
-        }
-
-        let prep_status = VTCompressionSessionPrepareToEncodeFrames(session);
-        if prep_status != 0 {
-            VTCompressionSessionInvalidate(session);
-            return Err(prep_status);
-        }
-
-        Ok(session)
+        CompressionSessionBuilder::new(VIDEO_WIDTH, VIDEO_HEIGHT, codecs::video::H264)
+            .pixel_format(codecs::pixel::BGRA32)
+            .hardware_accelerated(true)
+            .bitrate(VIDEO_BITRATE)
+            .frame_rate(FRAME_RATE)
+            .keyframe_interval(FRAME_RATE as i32)
+            .real_time(true)
+            .profile_level(kVTProfileLevel_H264_High_AutoLevel)
+            .build_with_context(Some(compression_output_callback), ptr::null_mut())
     }
 }
 
 fn setup_asset_writer(
     output_path: &str,
-) -> Result<(Retained<AVAssetWriter>, Retained<AVAssetWriterInput>, Retained<AVAssetWriterInput>), String>
-{
+) -> Result<
+    (
+        Retained<AVAssetWriter>,
+        Retained<AVAssetWriterInput>,
+        Retained<AVAssetWriterInput>,
+    ),
+    String,
+> {
     unsafe {
         let path_str = NSString::from_str(output_path);
         let output_url = NSURL::fileURLWithPath(&path_str);
@@ -339,7 +238,7 @@ fn setup_asset_writer(
         let bitrate_key = NSString::from_str("AVEncoderBitRateKey");
 
         let format_value: Retained<NSNumber> =
-            msg_send![class!(NSNumber), numberWithUnsignedInt: K_AUDIO_FORMAT_MPEG4_AAC];
+            msg_send![class!(NSNumber), numberWithUnsignedInt: codecs::audio::AAC];
         let sample_rate_value: Retained<NSNumber> =
             msg_send![class!(NSNumber), numberWithDouble: SAMPLE_RATE];
         let channels_value: Retained<NSNumber> =
@@ -389,48 +288,22 @@ fn setup_asset_writer(
     }
 }
 
-fn create_delegate_class(
-    name: &CStr,
-    protocol_name: &CStr,
-    callback: extern "C" fn(*mut c_void, Sel, *mut c_void, *mut c_void, *mut c_void),
-) -> &'static objc2::runtime::AnyClass {
-    use objc2::declare::ClassBuilder;
-
-    let protocol = AnyProtocol::get(protocol_name).expect("Protocol not found");
-
-    let mut builder = ClassBuilder::new(name, NSObject::class()).unwrap();
-    builder.add_protocol(protocol);
-    let delegate_class = builder.register();
-
-    #[link(name = "objc", kind = "dylib")]
-    extern "C" {
-        fn class_addMethod(
-            cls: *const c_void,
-            name: Sel,
-            imp: *const c_void,
-            types: *const i8,
-        ) -> Bool;
-    }
-
-    unsafe {
-        let method_sel = sel!(captureOutput:didOutputSampleBuffer:fromConnection:);
-        let method_types = b"v@:@@@\0";
-        class_addMethod(
-            delegate_class as *const _ as *const c_void,
-            method_sel,
-            callback as *const c_void,
-            method_types.as_ptr() as *const i8,
-        );
-    }
-
-    delegate_class
-}
-
 fn main() {
     println!("Audio + Video Recording Example");
     println!("================================");
-    println!("Video: {}x{} @ {} fps, H.264 {} Mbps", VIDEO_WIDTH, VIDEO_HEIGHT, FRAME_RATE, VIDEO_BITRATE / 1_000_000);
-    println!("Audio: {} Hz, {} ch, AAC {} kbps", SAMPLE_RATE, NUM_CHANNELS, AUDIO_BITRATE / 1000);
+    println!(
+        "Video: {}x{} @ {} fps, H.264 {} Mbps",
+        VIDEO_WIDTH,
+        VIDEO_HEIGHT,
+        FRAME_RATE,
+        VIDEO_BITRATE / 1_000_000
+    );
+    println!(
+        "Audio: {} Hz, {} ch, AAC {} kbps",
+        SAMPLE_RATE,
+        NUM_CHANNELS,
+        AUDIO_BITRATE / 1000
+    );
     println!("Duration: {} seconds\n", RECORD_DURATION_SECS);
 
     let output_path = std::env::current_dir()
@@ -452,7 +325,7 @@ fn main() {
             }
         };
 
-        // Create video compression session
+        // Create video compression session using builder
         println!("Creating H.264 encoder...");
         let compression_session = match create_compression_session() {
             Ok(s) => s,
@@ -525,7 +398,7 @@ fn main() {
         let video_output = AVCaptureVideoDataOutput::new();
         let format_key = ns_string!("PixelFormatType");
         let format_value: Retained<NSNumber> =
-            msg_send![class!(NSNumber), numberWithUnsignedInt: K_CV_PIXEL_FORMAT_TYPE_32BGRA];
+            msg_send![class!(NSNumber), numberWithUnsignedInt: codecs::pixel::BGRA32];
         let video_settings: Retained<NSObject> = msg_send![
             class!(NSDictionary),
             dictionaryWithObject: &*format_value,
@@ -537,50 +410,33 @@ fn main() {
         // Create audio output
         let audio_output = AVCaptureAudioDataOutput::new();
 
-        // Create delegates
-        let video_delegate_class = create_delegate_class(
-            CStr::from_bytes_with_nul(b"VideoDelegate\0").unwrap(),
-            CStr::from_bytes_with_nul(b"AVCaptureVideoDataOutputSampleBufferDelegate\0").unwrap(),
-            video_capture_callback,
-        );
+        // Create delegates using library helpers
+        let video_delegate = create_capture_delegate(
+            "VideoDelegate",
+            "AVCaptureVideoDataOutputSampleBufferDelegate",
+            video_capture_callback as DelegateCallback,
+        )
+        .expect("Failed to create video delegate");
 
-        let audio_delegate_class = create_delegate_class(
-            CStr::from_bytes_with_nul(b"AudioDelegate\0").unwrap(),
-            CStr::from_bytes_with_nul(b"AVCaptureAudioDataOutputSampleBufferDelegate\0").unwrap(),
-            audio_capture_callback,
-        );
+        let audio_delegate = create_capture_delegate(
+            "AudioDelegate",
+            "AVCaptureAudioDataOutputSampleBufferDelegate",
+            audio_capture_callback as DelegateCallback,
+        )
+        .expect("Failed to create audio delegate");
 
-        let video_delegate: Retained<NSObject> = msg_send![video_delegate_class, new];
-        let audio_delegate: Retained<NSObject> = msg_send![audio_delegate_class, new];
+        // Create dispatch queues using library helper
+        let video_queue = create_dispatch_queue("com.av.video.queue");
+        let audio_queue = create_dispatch_queue("com.av.audio.queue");
 
-        // Create dispatch queues
-        let video_queue =
-            dispatch_queue_create(b"com.av.video.queue\0".as_ptr() as *const i8, ptr::null());
-        let audio_queue =
-            dispatch_queue_create(b"com.av.audio.queue\0".as_ptr() as *const i8, ptr::null());
-
-        // Set delegates
-        #[link(name = "objc", kind = "dylib")]
-        extern "C" {
-            #[link_name = "objc_msgSend"]
-            fn objc_msgSend_set_delegate(
-                receiver: *const c_void,
-                sel: Sel,
-                delegate: *const c_void,
-                queue: *const c_void,
-            );
-        }
-
-        let set_delegate_sel = sel!(setSampleBufferDelegate:queue:);
-        objc_msgSend_set_delegate(
+        // Set delegates using library helper
+        set_sample_buffer_delegate(
             &*video_output as *const _ as *const c_void,
-            set_delegate_sel,
             &*video_delegate as *const _ as *const c_void,
             video_queue,
         );
-        objc_msgSend_set_delegate(
+        set_sample_buffer_delegate(
             &*audio_output as *const _ as *const c_void,
-            set_delegate_sel,
             &*audio_delegate as *const _ as *const c_void,
             audio_queue,
         );
@@ -605,23 +461,20 @@ fn main() {
         let _video_delegate_ref = video_delegate.clone();
         let _audio_delegate_ref = audio_delegate.clone();
 
-        // Run loop
-        let start = std::time::Instant::now();
-        while start.elapsed() < Duration::from_secs(RECORD_DURATION_SECS) {
-            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.1, false);
-
-            let elapsed = start.elapsed().as_secs();
-            static mut LAST_PRINTED: u64 = 0;
-            if elapsed > LAST_PRINTED {
-                LAST_PRINTED = elapsed;
+        // Run loop using library helper
+        let mut last_printed: u64 = 0;
+        run_for_duration(Duration::from_secs(RECORD_DURATION_SECS), |elapsed| {
+            let secs = elapsed.as_secs();
+            if secs > last_printed {
+                last_printed = secs;
                 println!(
                     "  {} sec - video: {} frames, audio: {} samples",
-                    elapsed,
+                    secs,
                     VIDEO_FRAME_COUNT.load(Ordering::SeqCst),
                     AUDIO_SAMPLE_COUNT.load(Ordering::SeqCst)
                 );
             }
-        }
+        });
 
         // Stop
         println!("\nStopping...");
@@ -662,13 +515,25 @@ fn main() {
         // Summary
         println!("\n================================");
         println!("Recording complete!");
-        println!("  Video frames captured: {}", VIDEO_FRAME_COUNT.load(Ordering::SeqCst));
-        println!("  Video frames encoded: {}", ENCODED_VIDEO_FRAMES.load(Ordering::SeqCst));
-        println!("  Audio samples: {}", AUDIO_SAMPLE_COUNT.load(Ordering::SeqCst));
+        println!(
+            "  Video frames captured: {}",
+            VIDEO_FRAME_COUNT.load(Ordering::SeqCst)
+        );
+        println!(
+            "  Video frames encoded: {}",
+            ENCODED_VIDEO_FRAMES.load(Ordering::SeqCst)
+        );
+        println!(
+            "  Audio samples: {}",
+            AUDIO_SAMPLE_COUNT.load(Ordering::SeqCst)
+        );
         println!("  Output: {}", output_path);
 
         if let Ok(metadata) = std::fs::metadata(&output_path) {
-            println!("  File size: {:.2} MB", metadata.len() as f64 / (1024.0 * 1024.0));
+            println!(
+                "  File size: {:.2} MB",
+                metadata.len() as f64 / (1024.0 * 1024.0)
+            );
         }
 
         println!("\nDone!");

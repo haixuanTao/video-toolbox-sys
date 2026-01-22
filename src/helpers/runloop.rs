@@ -135,7 +135,7 @@ where
 /// ```no_run
 /// use std::sync::{Arc, Mutex};
 /// use std::time::Duration;
-/// use video_toolbox_sys::helpers::runloop::run_until_some;
+/// use video_toolbox_sys::helpers::run_until_some;
 ///
 /// let result: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 ///

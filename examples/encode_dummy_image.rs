@@ -3,59 +3,38 @@
 //! This example creates a synthetic gradient image, wraps it in a CVPixelBuffer,
 //! and encodes it using Apple's hardware H.264 encoder.
 //!
-//! Run with: cargo run --example encode_dummy_image
+//! Run with: cargo run --example encode_dummy_image --features helpers
 //!
 //! H.264 is used because it has simpler licensing terms compared to HEVC.
 
 extern crate core_foundation;
 extern crate video_toolbox_sys;
 
-use core_foundation::base::TCFType;
-use core_foundation::boolean::CFBoolean;
-use core_foundation::dictionary::CFDictionary;
-use core_foundation::number::CFNumber;
-use core_foundation::string::CFString;
-use core_foundation_sys::base::{kCFAllocatorDefault, CFTypeRef, OSStatus};
-use core_foundation_sys::dictionary::CFDictionaryRef;
-use core_foundation_sys::string::CFStringRef;
+use core_foundation_sys::base::{CFTypeRef, OSStatus};
 use core_media_sys::CMSampleBufferRef;
+use libc::c_void;
+use std::ptr;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+use video_toolbox_sys::codecs;
+use video_toolbox_sys::compression::{
+    kVTEncodeInfo_FrameDropped, kVTProfileLevel_H264_High_AutoLevel,
+    VTCompressionSessionCompleteFrames, VTCompressionSessionEncodeFrame,
+    VTCompressionSessionInvalidate, VTCompressionSessionRef, VTEncodeInfoFlags,
+};
+use video_toolbox_sys::helpers::{
+    create_pixel_buffer, run_while, CompressionSessionBuilder, PixelBufferConfig, PixelBufferGuard,
+};
 
 // Declare missing CoreMedia function
 #[link(name = "CoreMedia", kind = "framework")]
 extern "C" {
     fn CMSampleBufferGetTotalSampleSize(sbuf: CMSampleBufferRef) -> usize;
 }
-use video_toolbox_sys::cv_types::{
-    kCVPixelBufferCGBitmapContextCompatibilityKey, kCVPixelBufferCGImageCompatibilityKey,
-    kCVPixelBufferHeightKey, kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey,
-    kCVReturnSuccess, CVPixelBufferCreate, CVPixelBufferGetBaseAddress,
-    CVPixelBufferGetBytesPerRow, CVPixelBufferLockBaseAddress, CVPixelBufferRef,
-    CVPixelBufferUnlockBaseAddress,
-};
-use libc::c_void;
-use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use video_toolbox_sys::compression::{
-    kVTCompressionPropertyKey_AverageBitRate, kVTCompressionPropertyKey_ExpectedFrameRate,
-    kVTCompressionPropertyKey_MaxKeyFrameInterval, kVTCompressionPropertyKey_ProfileLevel,
-    kVTCompressionPropertyKey_RealTime, kVTEncodeInfo_FrameDropped,
-    kVTProfileLevel_H264_High_AutoLevel,
-    kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder,
-    VTCompressionOutputCallback, VTCompressionSessionCompleteFrames, VTCompressionSessionCreate,
-    VTCompressionSessionEncodeFrame, VTCompressionSessionInvalidate,
-    VTCompressionSessionPrepareToEncodeFrames, VTCompressionSessionRef, VTEncodeInfoFlags,
-};
-use video_toolbox_sys::session::VTSessionSetProperty;
-
-// H.264 codec FourCC: 'avc1'
-const K_CM_VIDEO_CODEC_TYPE_H264: u32 = 0x61766331;
-
-// kCVPixelFormatType_32BGRA
-const K_CV_PIXEL_FORMAT_TYPE_32BGRA: u32 = 0x42475241; // 'BGRA'
 
 // Image dimensions
-const WIDTH: i32 = 1920;
-const HEIGHT: i32 = 1080;
+const WIDTH: usize = 1920;
+const HEIGHT: usize = 1080;
 const NUM_FRAMES: usize = 30;
 
 // Global counters for the callback
@@ -69,7 +48,7 @@ extern "C" fn compression_output_callback(
     _source_frame_ref_con: *mut c_void,
     status: OSStatus,
     info_flags: VTEncodeInfoFlags,
-    sample_buffer: CMSampleBufferRef,
+    sample_buffer: *mut c_void,
 ) {
     if status != 0 {
         println!("  Encoding error: OSStatus {}", status);
@@ -87,7 +66,7 @@ extern "C" fn compression_output_callback(
     }
 
     // Get the size of the encoded data
-    let data_size = unsafe { CMSampleBufferGetTotalSampleSize(sample_buffer) };
+    let data_size = unsafe { CMSampleBufferGetTotalSampleSize(sample_buffer as CMSampleBufferRef) };
 
     let frame_num = ENCODED_FRAMES.fetch_add(1, Ordering::SeqCst) + 1;
     TOTAL_BYTES.fetch_add(data_size, Ordering::SeqCst);
@@ -99,61 +78,24 @@ extern "C" fn compression_output_callback(
     }
 }
 
-/// Create a CVPixelBuffer with a gradient test pattern
-fn create_test_image(frame_number: usize) -> CVPixelBufferRef {
+/// Create a CVPixelBuffer with a gradient test pattern using library helpers
+fn create_test_image(frame_number: usize) -> video_toolbox_sys::cv_types::CVPixelBufferRef {
+    // Create pixel buffer using helper
+    let config = PixelBufferConfig::new(WIDTH, HEIGHT);
+    let pixel_buffer = create_pixel_buffer(&config).expect("Failed to create CVPixelBuffer");
+
+    // Lock buffer and fill with gradient pattern
     unsafe {
-        let mut pixel_buffer: CVPixelBufferRef = ptr::null_mut();
-
-        // Create pixel buffer attributes
-        let format_key = CFString::wrap_under_get_rule(kCVPixelBufferPixelFormatTypeKey);
-        let width_key = CFString::wrap_under_get_rule(kCVPixelBufferWidthKey);
-        let height_key = CFString::wrap_under_get_rule(kCVPixelBufferHeightKey);
-        let cg_compat_key = CFString::wrap_under_get_rule(kCVPixelBufferCGImageCompatibilityKey);
-        let cg_bitmap_key =
-            CFString::wrap_under_get_rule(kCVPixelBufferCGBitmapContextCompatibilityKey);
-
-        let attrs = CFDictionary::from_CFType_pairs(&[
-            (
-                format_key.as_CFType(),
-                CFNumber::from(K_CV_PIXEL_FORMAT_TYPE_32BGRA as i32).as_CFType(),
-            ),
-            (width_key.as_CFType(), CFNumber::from(WIDTH).as_CFType()),
-            (height_key.as_CFType(), CFNumber::from(HEIGHT).as_CFType()),
-            (
-                cg_compat_key.as_CFType(),
-                CFBoolean::true_value().as_CFType(),
-            ),
-            (
-                cg_bitmap_key.as_CFType(),
-                CFBoolean::true_value().as_CFType(),
-            ),
-        ]);
-
-        let status = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            WIDTH as usize,
-            HEIGHT as usize,
-            K_CV_PIXEL_FORMAT_TYPE_32BGRA,
-            attrs.as_concrete_TypeRef() as CFDictionaryRef,
-            &mut pixel_buffer,
-        );
-
-        if status != kCVReturnSuccess {
-            panic!("Failed to create CVPixelBuffer: {}", status);
-        }
-
-        // Lock the buffer to write pixels
-        CVPixelBufferLockBaseAddress(pixel_buffer, 0);
-
-        let base_address = CVPixelBufferGetBaseAddress(pixel_buffer) as *mut u8;
-        let bytes_per_row = CVPixelBufferGetBytesPerRow(pixel_buffer);
+        let guard = PixelBufferGuard::lock(pixel_buffer).expect("Failed to lock buffer");
+        let base_address = guard.base_address();
+        let bytes_per_row = guard.bytes_per_row();
 
         // Create a moving gradient pattern
         let offset = (frame_number * 10) % 256;
 
-        for y in 0..HEIGHT as usize {
+        for y in 0..HEIGHT {
             let row = base_address.add(y * bytes_per_row);
-            for x in 0..WIDTH as usize {
+            for x in 0..WIDTH {
                 let pixel = row.add(x * 4);
                 // BGRA format
                 let r = ((x + offset) % 256) as u8;
@@ -165,11 +107,10 @@ fn create_test_image(frame_number: usize) -> CVPixelBufferRef {
                 *pixel.add(3) = 255; // A
             }
         }
-
-        CVPixelBufferUnlockBaseAddress(pixel_buffer, 0);
-
-        pixel_buffer
+        // Guard automatically unlocks when dropped
     }
+
+    pixel_buffer
 }
 
 fn main() {
@@ -178,151 +119,57 @@ fn main() {
     println!("Resolution: {}x{}", WIDTH, HEIGHT);
     println!("Frames to encode: {}\n", NUM_FRAMES);
 
-    unsafe {
-        // Create encoder specification requesting hardware acceleration
-        let hw_key = CFString::wrap_under_get_rule(
-            kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as CFStringRef,
-        );
-        let encoder_spec = CFDictionary::from_CFType_pairs(&[(
-            hw_key.as_CFType(),
-            CFBoolean::true_value().as_CFType(),
-        )]);
+    println!("Creating H.264 compression session...");
 
-        // Create source image buffer attributes
-        let format_key = CFString::wrap_under_get_rule(kCVPixelBufferPixelFormatTypeKey);
-        let width_key = CFString::wrap_under_get_rule(kCVPixelBufferWidthKey);
-        let height_key = CFString::wrap_under_get_rule(kCVPixelBufferHeightKey);
+    // Create compression session using builder
+    let session: VTCompressionSessionRef = unsafe {
+        CompressionSessionBuilder::new(WIDTH as i32, HEIGHT as i32, codecs::video::H264)
+            .hardware_accelerated(true)
+            .bitrate(8_000_000)
+            .frame_rate(30.0)
+            .keyframe_interval(30)
+            .real_time(true)
+            .profile_level(kVTProfileLevel_H264_High_AutoLevel)
+            .build_with_context(Some(compression_output_callback), ptr::null_mut())
+            .expect("Failed to create compression session")
+    };
 
-        let source_attrs = CFDictionary::from_CFType_pairs(&[
-            (
-                format_key.as_CFType(),
-                CFNumber::from(K_CV_PIXEL_FORMAT_TYPE_32BGRA as i32).as_CFType(),
-            ),
-            (width_key.as_CFType(), CFNumber::from(WIDTH).as_CFType()),
-            (height_key.as_CFType(), CFNumber::from(HEIGHT).as_CFType()),
-        ]);
+    println!("Compression session created successfully!");
+    println!("Session configured:");
+    println!("  Profile: H.264 High (Auto Level)");
+    println!("  Bitrate: 8 Mbps");
+    println!("  Frame rate: 30 fps");
+    println!("  Keyframe interval: 30 frames\n");
 
-        let mut session: VTCompressionSessionRef = ptr::null_mut();
+    println!("Encoding {} frames...\n", NUM_FRAMES);
 
-        println!("Creating H.264 compression session...");
+    let start_time = std::time::Instant::now();
 
-        let status = VTCompressionSessionCreate(
-            kCFAllocatorDefault,
-            WIDTH,
-            HEIGHT,
-            K_CM_VIDEO_CODEC_TYPE_H264,
-            encoder_spec.as_concrete_TypeRef() as CFDictionaryRef,
-            source_attrs.as_concrete_TypeRef() as CFDictionaryRef,
-            kCFAllocatorDefault,
-            compression_output_callback as VTCompressionOutputCallback,
-            ptr::null_mut(),
-            &mut session,
-        );
+    // Encode frames
+    for frame_num in 0..NUM_FRAMES {
+        // Create a test image with a moving pattern
+        let pixel_buffer = create_test_image(frame_num);
 
-        if status != 0 {
-            println!("Failed to create compression session: OSStatus {}", status);
-            println!("\nPossible reasons:");
-            println!("  - H.264 encoder not available on this system");
-            return;
-        }
+        // Create presentation timestamp (30 fps = 1/30 second per frame)
+        let pts = core_media_sys::CMTime {
+            value: frame_num as i64,
+            timescale: 30,
+            flags: 1, // kCMTimeFlags_Valid
+            epoch: 0,
+        };
 
-        println!("Compression session created successfully!");
+        // Duration of one frame at 30fps
+        let duration = core_media_sys::CMTime {
+            value: 1,
+            timescale: 30,
+            flags: 1,
+            epoch: 0,
+        };
 
-        // Configure session properties
-        // Profile: H.264 High (auto level)
-        let profile_key =
-            CFString::wrap_under_get_rule(kVTCompressionPropertyKey_ProfileLevel as CFStringRef);
-        let profile_value =
-            CFString::wrap_under_get_rule(kVTProfileLevel_H264_High_AutoLevel as CFStringRef);
-        VTSessionSetProperty(
-            session,
-            profile_key.as_concrete_TypeRef() as CFStringRef,
-            profile_value.as_concrete_TypeRef() as CFTypeRef,
-        );
+        let mut info_flags: VTEncodeInfoFlags = 0;
 
-        // Bitrate: 8 Mbps
-        let bitrate_key =
-            CFString::wrap_under_get_rule(kVTCompressionPropertyKey_AverageBitRate as CFStringRef);
-        let bitrate_value = CFNumber::from(8_000_000i64);
-        VTSessionSetProperty(
-            session,
-            bitrate_key.as_concrete_TypeRef() as CFStringRef,
-            bitrate_value.as_concrete_TypeRef() as CFTypeRef,
-        );
-
-        // Expected frame rate: 30 fps
-        let fps_key = CFString::wrap_under_get_rule(
-            kVTCompressionPropertyKey_ExpectedFrameRate as CFStringRef,
-        );
-        let fps_value = CFNumber::from(30.0f64);
-        VTSessionSetProperty(
-            session,
-            fps_key.as_concrete_TypeRef() as CFStringRef,
-            fps_value.as_concrete_TypeRef() as CFTypeRef,
-        );
-
-        // Keyframe interval: every 30 frames (1 second at 30fps)
-        let keyframe_key = CFString::wrap_under_get_rule(
-            kVTCompressionPropertyKey_MaxKeyFrameInterval as CFStringRef,
-        );
-        let keyframe_value = CFNumber::from(30i32);
-        VTSessionSetProperty(
-            session,
-            keyframe_key.as_concrete_TypeRef() as CFStringRef,
-            keyframe_value.as_concrete_TypeRef() as CFTypeRef,
-        );
-
-        // Real-time encoding
-        let realtime_key =
-            CFString::wrap_under_get_rule(kVTCompressionPropertyKey_RealTime as CFStringRef);
-        VTSessionSetProperty(
-            session,
-            realtime_key.as_concrete_TypeRef() as CFStringRef,
-            CFBoolean::true_value().as_concrete_TypeRef() as CFTypeRef,
-        );
-
-        println!("Session configured:");
-        println!("  Profile: H.264 High (Auto Level)");
-        println!("  Bitrate: 8 Mbps");
-        println!("  Frame rate: 30 fps");
-        println!("  Keyframe interval: 30 frames\n");
-
-        // Prepare for encoding
-        let prep_status = VTCompressionSessionPrepareToEncodeFrames(session);
-        if prep_status != 0 {
-            println!("Failed to prepare session: {}", prep_status);
-            VTCompressionSessionInvalidate(session);
-            return;
-        }
-
-        println!("Encoding {} frames...\n", NUM_FRAMES);
-
-        let start_time = std::time::Instant::now();
-
-        // Encode frames
-        for frame_num in 0..NUM_FRAMES {
-            // Create a test image with a moving pattern
-            let pixel_buffer = create_test_image(frame_num);
-
-            // Create presentation timestamp (30 fps = 1/30 second per frame)
-            let pts = core_media_sys::CMTime {
-                value: frame_num as i64,
-                timescale: 30,
-                flags: 1, // kCMTimeFlags_Valid
-                epoch: 0,
-            };
-
-            // Duration of one frame at 30fps
-            let duration = core_media_sys::CMTime {
-                value: 1,
-                timescale: 30,
-                flags: 1,
-                epoch: 0,
-            };
-
-            let mut info_flags: VTEncodeInfoFlags = 0;
-
-            let encode_status = VTCompressionSessionEncodeFrame(
+        let encode_status = unsafe {
+            VTCompressionSessionEncodeFrame(
                 session,
                 pixel_buffer,
                 pts,
@@ -330,56 +177,64 @@ fn main() {
                 ptr::null(),     // frame properties
                 ptr::null_mut(), // source frame refcon
                 &mut info_flags,
-            );
+            )
+        };
 
-            if encode_status != 0 {
-                println!("Failed to encode frame {}: {}", frame_num, encode_status);
-            }
+        if encode_status != 0 {
+            println!("Failed to encode frame {}: {}", frame_num, encode_status);
+        }
 
-            // Release the pixel buffer
+        // Release the pixel buffer
+        unsafe {
             core_foundation_sys::base::CFRelease(pixel_buffer as CFTypeRef);
         }
-
-        // Signal that we're done submitting frames
-        let complete_time = core_media_sys::CMTime {
-            value: NUM_FRAMES as i64,
-            timescale: 30,
-            flags: 1,
-            epoch: 0,
-        };
-        VTCompressionSessionCompleteFrames(session, complete_time);
-
-        // Wait for encoding to complete
-        while !ENCODING_DONE.load(Ordering::SeqCst) {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-
-        let elapsed = start_time.elapsed();
-
-        // Print summary
-        let total_frames = ENCODED_FRAMES.load(Ordering::SeqCst);
-        let total_bytes = TOTAL_BYTES.load(Ordering::SeqCst);
-
-        println!("\n===============================");
-        println!("Encoding complete!");
-        println!("  Frames encoded: {}", total_frames);
-        println!(
-            "  Total size: {} bytes ({:.2} KB)",
-            total_bytes,
-            total_bytes as f64 / 1024.0
-        );
-        println!(
-            "  Average frame size: {:.0} bytes",
-            total_bytes as f64 / total_frames as f64
-        );
-        println!("  Time elapsed: {:.2?}", elapsed);
-        println!(
-            "  Encoding speed: {:.1} fps",
-            total_frames as f64 / elapsed.as_secs_f64()
-        );
-
-        // Clean up
-        VTCompressionSessionInvalidate(session);
-        println!("\nSession invalidated.");
     }
+
+    // Signal that we're done submitting frames
+    let complete_time = core_media_sys::CMTime {
+        value: NUM_FRAMES as i64,
+        timescale: 30,
+        flags: 1,
+        epoch: 0,
+    };
+    unsafe {
+        VTCompressionSessionCompleteFrames(session, complete_time);
+    }
+
+    // Wait for encoding to complete using run_while helper
+    run_while(
+        || !ENCODING_DONE.load(Ordering::SeqCst),
+        std::time::Duration::from_millis(10),
+        Some(std::time::Duration::from_secs(10)),
+    );
+
+    let elapsed = start_time.elapsed();
+
+    // Print summary
+    let total_frames = ENCODED_FRAMES.load(Ordering::SeqCst);
+    let total_bytes = TOTAL_BYTES.load(Ordering::SeqCst);
+
+    println!("\n===============================");
+    println!("Encoding complete!");
+    println!("  Frames encoded: {}", total_frames);
+    println!(
+        "  Total size: {} bytes ({:.2} KB)",
+        total_bytes,
+        total_bytes as f64 / 1024.0
+    );
+    println!(
+        "  Average frame size: {:.0} bytes",
+        total_bytes as f64 / total_frames as f64
+    );
+    println!("  Time elapsed: {:.2?}", elapsed);
+    println!(
+        "  Encoding speed: {:.1} fps",
+        total_frames as f64 / elapsed.as_secs_f64()
+    );
+
+    // Clean up
+    unsafe {
+        VTCompressionSessionInvalidate(session);
+    }
+    println!("\nSession invalidated.");
 }

@@ -118,7 +118,7 @@ pub fn create_capture_delegate_cstr(
 /// # Example
 ///
 /// ```no_run
-/// use video_toolbox_sys::helpers::delegate::create_dispatch_queue;
+/// use video_toolbox_sys::helpers::create_dispatch_queue;
 ///
 /// let queue = create_dispatch_queue("com.myapp.video.queue");
 /// ```
