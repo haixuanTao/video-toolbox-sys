@@ -57,5 +57,7 @@ pub mod utilities;
 // New modules
 pub mod codecs;
 
-#[cfg(feature = "helpers")]
+// CoreMedia sample buffer bindings for NAL extraction
+pub mod cm_sample_buffer;
+
 pub mod helpers;

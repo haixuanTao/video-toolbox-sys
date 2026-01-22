@@ -34,6 +34,10 @@ mod delegate;
 mod pixel_buffer;
 mod runloop;
 
+// NAL extraction and CMAF muxing for streaming
+pub mod nal_extractor;
+pub mod cmaf_muxer;
+
 pub use compression_builder::{CompressionSessionBuilder, CompressionSessionConfig};
 pub use delegate::{
     create_capture_delegate, create_dispatch_queue, set_sample_buffer_delegate, CaptureDelegate,
@@ -41,3 +45,12 @@ pub use delegate::{
 };
 pub use pixel_buffer::{create_pixel_buffer, PixelBufferConfig, PixelBufferGuard};
 pub use runloop::{run_for_duration, run_until_some, run_while};
+
+// Re-export NAL extractor types
+pub use nal_extractor::{
+    convert_time, H264ParameterSets, NalError, NalExtractor, NalUnit, SampleTiming,
+    VideoDimensions,
+};
+
+// Re-export CMAF muxer types
+pub use cmaf_muxer::{CmafConfig, CmafMuxer};
