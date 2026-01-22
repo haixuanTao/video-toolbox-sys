@@ -19,7 +19,7 @@ use core_foundation_sys::base::{kCFAllocatorDefault, CFTypeRef, OSStatus};
 use core_foundation_sys::dictionary::CFDictionaryRef;
 use core_foundation_sys::string::CFStringRef;
 use core_media_sys::CMTime;
-use core_video_sys::{kCVPixelBufferPixelFormatTypeKey, CVPixelBufferRef};
+use video_toolbox_sys::cv_types::{kCVPixelBufferPixelFormatTypeKey, CVPixelBufferRef};
 use libc::c_void;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyProtocol, Bool, Sel};

@@ -25,7 +25,7 @@ use core_media_sys::CMSampleBufferRef;
 extern "C" {
     fn CMSampleBufferGetTotalSampleSize(sbuf: CMSampleBufferRef) -> usize;
 }
-use core_video_sys::{
+use video_toolbox_sys::cv_types::{
     kCVPixelBufferCGBitmapContextCompatibilityKey, kCVPixelBufferCGImageCompatibilityKey,
     kCVPixelBufferHeightKey, kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey,
     kCVReturnSuccess, CVPixelBufferCreate, CVPixelBufferGetBaseAddress,

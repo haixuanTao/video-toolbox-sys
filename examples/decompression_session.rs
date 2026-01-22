@@ -16,7 +16,7 @@ use core_foundation::string::CFString;
 use core_foundation_sys::base::OSStatus;
 use core_foundation_sys::string::CFStringRef;
 use core_media_sys::CMTime;
-use core_video_sys::CVImageBufferRef;
+use video_toolbox_sys::cv_types::CVImageBufferRef;
 use libc::c_void;
 use video_toolbox_sys::decompression::{
     kVTDecodeInfo_Asynchronous, kVTDecodeInfo_FrameDropped,

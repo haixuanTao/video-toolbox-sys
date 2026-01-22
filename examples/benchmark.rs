@@ -15,7 +15,7 @@ use core_foundation::string::CFString;
 use core_foundation_sys::base::{kCFAllocatorDefault, CFRelease, CFTypeRef, OSStatus};
 use core_foundation_sys::dictionary::CFDictionaryRef;
 use core_foundation_sys::string::CFStringRef;
-use core_video_sys::{
+use video_toolbox_sys::cv_types::{
     kCVPixelBufferCGBitmapContextCompatibilityKey, kCVPixelBufferCGImageCompatibilityKey,
     kCVPixelBufferHeightKey, kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey,
     kCVReturnSuccess, CVPixelBufferCreate, CVPixelBufferGetBaseAddress,
