@@ -12,6 +12,11 @@ keywords = ["video", "encoding", "videotoolbox", "h264", "macos"]
 categories = ["multimedia::video", "os::macos-apis"]
 readme = "README.md"
 
+[features]
+default = []
+xoq = ["dep:xoq", "dep:tokio", "dep:anyhow", "dep:tracing-subscriber", "dep:bytes", "dep:moq-native", "dep:url", "dep:ctrlc"]
+xoq-player = ["xoq", "dep:minifb"]
+
 [dependencies]
 libc = "0.2"
 core-foundation-sys = "0.8"
@@ -20,9 +25,32 @@ core-foundation = "0.9"
 objc2 = "0.6"
 objc2-foundation = "0.3"
 
+# Optional dependencies for xoq streaming
+xoq = { path = "../wser", optional = true, features = ["iroh"] }
+tokio = { version = "1", features = ["full"], optional = true }
+anyhow = { version = "1", optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
+bytes = { version = "1", optional = true }
+moq-native = { version = "0.11", optional = true }
+url = { version = "2", optional = true }
+ctrlc = { version = "3", optional = true }
+minifb = { version = "0.27", optional = true }
+
 [dev-dependencies]
 objc2-av-foundation = "0.3"
 objc2-core-media = "0.3"
 objc2-core-video = "0.3"
 dispatch = "0.2"
 block2 = "0.6"
+
+[[example]]
+name = "camera_xoq_stream"
+required-features = ["xoq"]
+
+[[example]]
+name = "camera_xoq_client"
+required-features = ["xoq"]
+
+[[example]]
+name = "camera_xoq_player"
+required-features = ["xoq-player"]
